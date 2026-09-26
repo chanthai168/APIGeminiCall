@@ -7,9 +7,6 @@ import { InsufficientBalanceException } from '../../common/exceptions/insufficie
 @Injectable()
 export class UsersService {
     constructor(private readonly prismaService:PrismaService){};
-    getHiFromUser(){
-        throw new InsufficientBalanceException(120);
-    }
 
     async getUsers():Promise<any[]>{
         return await this.prismaService.user.findMany();
@@ -18,6 +15,14 @@ export class UsersService {
     async createUser(user:CreateUserDto): Promise<string>{
         await this.prismaService.user.create({data: user});
         return 'User created' + ' ' + user.email +' ' + user.name;
+    }
+
+    async findUserByEmail(email: string){
+        return await this.prismaService.user.findUnique({
+            where:{
+                email: email
+            }
+        })
     }
 
     async updateUser(updateUser:UpdateUserDto,id:string): Promise<string>{

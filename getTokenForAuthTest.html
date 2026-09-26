@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <!-- Add Clerk's JS Bundle -->
+    <script
+      async
+      crossorigin="anonymous"
+      data-clerk-publishable-key="pk_test_d2lzZS1qYXZlbGluLTkzMDMuY2xlcmsuYWNjb3VudHMuZGV2JA"
+      src="https://wise-javelin-9303.clerk.accounts.dev/npm/@clerk/clerk-js@latest/dist/clerk.browser.js"
+      type="text/javascript"
+    ></script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <button onclick="copyToken()">Copy JWT Token</button>
+
+    <script>
+      window.addEventListener('load', async () => {
+        await Clerk.load();
+        if (!Clerk.user) {
+          Clerk.openSignIn();
+        } else {
+          document.getElementById('app').innerHTML = `Logged in as ${Clerk.user.primaryEmailAddress}`;
+        }
+      });
+
+      async function copyToken() {
+        const token = await Clerk.session.getToken();
+        console.log('YOUR BEARER TOKEN:\n', token);
+        navigator.clipboard.writeText(token);
+        alert('Token copied to clipboard! Paste it into Postman.');
+      }
+    </script>
+  </body>
+</html>

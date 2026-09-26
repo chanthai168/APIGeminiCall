@@ -2,14 +2,13 @@ import { Controller, Get,Post,Body, Put,Param, Delete,UseGuards,UseInterceptors 
 import { UsersService } from './users.service.js';
 import { CreateUserDto } from './dto/create-user.dto.js';
 import { UpdateUserDto } from './dto/update-user.dto.js';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard.js';
-import { RoleGuard } from '../../common/guards/role.guard.js';
 import { Roles } from '../../common/decorators/roles.decorator.js';
 import { LoggingInterceptor } from '../../common/interceptors/Logging.interceptor.js';
 import { TransformInterceptor } from '../../common/interceptors/transform.interceptor.js';
-import { User } from '../../common/decorators/getUser.decorator.js';
+import { User } from '../../common/decorators/user.decorator.js';
+import type { AuthObject } from '@clerk/backend';
 
-@UseGuards(JwtAuthGuard)
+
 @UseInterceptors(LoggingInterceptor)
 @Controller('users')
 export class UsersController {
@@ -25,25 +24,19 @@ export class UsersController {
         return await this.usersService.updateUser(updateUserDto,id);
     }
 
-    @Roles(['USER']) // setup role 'User' to this route
-    @UseGuards(RoleGuard) // True if incomming user hold 'USER' role 
+    @Roles(['USER']) 
+    // @UseGuards(AuthGuard,RoleGuard)
     @UseInterceptors(TransformInterceptor)
     @Get()
-
-    async getUser(@User() user:{email:string,name:string}):Promise<any[]>{
+    async getUser(@User() user:AuthObject):Promise<string>{
         console.log(user);
-        return await this.usersService.getUsers();
+        // return await this.usersService.getUsers();
+        return "You would get user";
     }
-    // nest does 
-    // reflext.defineMetadata('roles',[USER]) under the hood 
 
     @Delete()
     async deleteUser(@Param('id') id:string):Promise<string>{
         return await this.usersService.deleteUser(id);
     }
 
-    @Get('hi')
-    getHiFromUser(){
-        return this.usersService.getHiFromUser()
-    }
 }

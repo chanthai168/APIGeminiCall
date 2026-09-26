@@ -19,7 +19,6 @@ async function bootstrap() {
       },
       exceptionFactory: (errors: ValidationError[]) => {
         // Pass raw error to filter 
-        // question does it pass all raw error or only validationError
         return new BadRequestException({
           message: 'Validation failed',
           errorCode: 'VALIDATION_ERROR',
