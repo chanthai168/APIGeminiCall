@@ -9,8 +9,6 @@ import { RoleGuard } from '../../common/guards/role.guard.js';
 import { Role as RoleEnum } from '../../generated/prisma/enums.js';
 import { Roles } from '../../common/decorators/roles.decorator.js';
 
-@UseGuards(RoleGuard)
-@Roles([RoleEnum.USER])
 @UseInterceptors(LoggingInterceptor)
 @Controller('users')
 export class UsersController {
