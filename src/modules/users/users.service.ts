@@ -2,19 +2,19 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { CreateUserDto} from './dto/create-user.dto.js';
 import { UpdateUserDto } from './dto/update-user.dto.js';
-import { InsufficientBalanceException } from '../../common/exceptions/insufficient-balance.exception.js';
 
 @Injectable()
 export class UsersService {
     constructor(private readonly prismaService:PrismaService){};
 
-    async getUsers():Promise<any[]>{
+    async getUsers(){
         return await this.prismaService.user.findMany();
     }
 
-    async createUser(user:CreateUserDto): Promise<string>{
-        await this.prismaService.user.create({data: user});
-        return 'User created' + ' ' + user.email +' ' + user.name;
+    async createUser(user:CreateUserDto){
+        
+        // return created user
+        return await this.prismaService.user.create({data: user});
     }
 
     async findUserByEmail(email: string){
@@ -25,22 +25,25 @@ export class UsersService {
         })
     }
 
-    async updateUser(updateUser:UpdateUserDto,id:string): Promise<string>{
-        await this.prismaService.user.update({
+    async updateUser(updateUser:UpdateUserDto,id:string){
+
+        // return updated user
+        return await this.prismaService.user.update({
             where:{
                 id:id,
             },
             data: updateUser,
         })
-        return 'User updated' + ' ' + updateUser.email + ' ' + updateUser.name;
     }
 
-    async deleteUser(id:string):Promise<string>{
-        await this.prismaService.user.delete({
+    async deleteUser(id:string){
+
+        // return user right before delete
+        return await this.prismaService.user.delete({
             where: {
                 id:id,
             }
         })
-        return 'User ' + id + ' is deleted.';
     }
+
 }

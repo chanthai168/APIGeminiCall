@@ -1,5 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEmail, IsOptional, IsString, MinLength, MaxLength } from 'class-validator';
+import { IsEmail, IsOptional, IsString, MinLength, MaxLength, IsEnum } from 'class-validator';
+import { Role } from '../../../generated/prisma/enums.js';
 
 export class UpdateUserDto {
   @ApiPropertyOptional({ 
@@ -21,4 +22,13 @@ export class UpdateUserDto {
   @MinLength(2)
   @MaxLength(100)
   name?: string;
+
+  @ApiPropertyOptional({
+    enum: Role,
+    example: Role.USER,
+    description: 'User role (defaults to USER if omitted)',
+  })
+  @IsOptional()
+  @IsEnum(Role, { message: 'Role must be one of: USER, ADMIN, MODERATOR' })
+  role?: Role;
 }

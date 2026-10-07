@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEmail, IsOptional, IsString, MinLength, MaxLength } from 'class-validator';
+import { IsEmail, IsOptional, IsString, MinLength, MaxLength,IsEnum } from 'class-validator';
+import { Role } from '../../../generated/prisma/enums.js';
 
 export class CreateUserDto {
   @ApiProperty({ 
@@ -11,14 +12,6 @@ export class CreateUserDto {
   @MaxLength(255)
   email!: string;
 
-  @ApiProperty({ 
-    description: 'Please use strong password including Capital letter, letter, Number, Special character and at lease 8 letter'
-  })
-  @IsString()
-  @MaxLength(32)
-  @MinLength(8)
-  password!: string;
-
   @ApiPropertyOptional({ 
     example: 'John Doe',
     description: 'User full name (optional)'
@@ -28,4 +21,23 @@ export class CreateUserDto {
   @MinLength(2)
   @MaxLength(100)
   name?: string;
+
+
+  @ApiProperty({ 
+    description: 'Please use strong password including Capital letter, letter, Number, Special character and at lease 8 letter'
+  })
+  @IsString()
+  @MaxLength(32)
+  @MinLength(8)
+  password!: string;
+
+  @ApiPropertyOptional({
+    enum: Role,
+    example: Role.USER,
+    description: 'User role (defaults to USER if omitted)',
+  })
+  @IsOptional()
+  @IsEnum(Role, { message: 'Role must be one of: USER, ADMIN, MODERATOR' })
+  role!: Role;
+
 }

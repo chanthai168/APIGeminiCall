@@ -2,40 +2,38 @@ import { Controller, Get,Post,Body, Put,Param, Delete,UseGuards,UseInterceptors 
 import { UsersService } from './users.service.js';
 import { CreateUserDto } from './dto/create-user.dto.js';
 import { UpdateUserDto } from './dto/update-user.dto.js';
-import { Roles } from '../../common/decorators/roles.decorator.js';
 import { LoggingInterceptor } from '../../common/interceptors/Logging.interceptor.js';
-import { TransformInterceptor } from '../../common/interceptors/transform.interceptor.js';
-import { User } from '../../common/decorators/user.decorator.js';
-import type { AuthObject } from '@clerk/backend';
 
+import { AuthGuard } from '../../common/guards/clerk-auth.guard.js';
+import { RoleGuard } from '../../common/guards/role.guard.js';
+import { Role as RoleEnum } from '../../generated/prisma/enums.js';
+import { Roles } from '../../common/decorators/roles.decorator.js';
 
+@UseGuards(RoleGuard)
+@Roles([RoleEnum.USER])
 @UseInterceptors(LoggingInterceptor)
 @Controller('users')
 export class UsersController {
     constructor(private readonly usersService:UsersService){};
 
+    @Get()
+    async getUser(){
+        const users = await this.usersService.getUsers();
+        return users;
+    }
+
     @Post()
-    async createUser(@Body() createUserDto:CreateUserDto):Promise<string> {
+    async createUser(@Body() createUserDto:CreateUserDto){
         return await this.usersService.createUser(createUserDto);
     }
 
     @Put(':id')
-    async updateUser(@Body() updateUserDto:UpdateUserDto,@Param('id') id:string): Promise<string> {
+    async updateUser(@Body() updateUserDto:UpdateUserDto,@Param('id') id:string){
         return await this.usersService.updateUser(updateUserDto,id);
     }
 
-    @Roles(['USER']) 
-    // @UseGuards(AuthGuard,RoleGuard)
-    @UseInterceptors(TransformInterceptor)
-    @Get()
-    async getUser(@User() user:AuthObject):Promise<string>{
-        console.log(user);
-        // return await this.usersService.getUsers();
-        return "You would get user";
-    }
-
     @Delete()
-    async deleteUser(@Param('id') id:string):Promise<string>{
+    async deleteUser(@Param('id') id:string){
         return await this.usersService.deleteUser(id);
     }
 

@@ -3,7 +3,7 @@ import { AppModule } from './app.module.js';
 import { BadRequestException, ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder,SwaggerModule } from '@nestjs/swagger';
 import { ValidationError } from 'class-validator';
-import { AllExceptionsFilter } from './common/filters/validation-exception.filter.js';
+import { AllExceptionsFilter } from './common/filters/global-exception.filter.js';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -11,12 +11,14 @@ async function bootstrap() {
   // Enable ValidationPips - without this DTO decorator do nothing!
   app.useGlobalPipes(
     new ValidationPipe({
-      whitelist:true, // strips properties that don't have decorator 
-      forbidNonWhitelisted:true,  // throw error if extra property are sent. 
-      transform:true, // automatically transform payload to DTO instance 
+      whitelist:true,                  // strips properties that don't have decorator 
+      forbidNonWhitelisted:true,       // throw error if extra property are sent. 
+      transform:true,                  // automatically transform payload to DTO instance 
       transformOptions:{
-        enableImplicitConversion:true, // use for query/params 
+        enableImplicitConversion:true, // automatically convert type base on typescript type declare on DTO properties - usefull for query params 
       },
+
+      // Only for validation error other thrown exception is ignored 
       exceptionFactory: (errors: ValidationError[]) => {
         // Pass raw error to filter 
         return new BadRequestException({

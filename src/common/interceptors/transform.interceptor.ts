@@ -9,8 +9,6 @@ interface Response<T> {
 export class TransformInterceptor<T> implements NestInterceptor<T,Response<T>>{
 
     intercept(context: ExecutionContext, next: CallHandler<T>): Observable<Response<T>> {
-        console.log('');
-        console.log('Transform interceptor ran...')
         
         return next
         .handle()   // return observable<T> that will emit the response data
