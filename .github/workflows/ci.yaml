@@ -2,9 +2,9 @@ name: Continuous Integration
 
 on:
   push:
-    branches: [ main, dev, develop ]
+    branches: [  dev, develop ] # <- turn off execute ci for now
   pull_request:
-    branches: [ main, dev, develop ]
+    branches: [  dev, develop ]
 jobs:
   test:
     runs-on: ubuntu-latest

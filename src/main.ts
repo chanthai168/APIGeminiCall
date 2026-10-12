@@ -8,6 +8,9 @@ import { AllExceptionsFilter } from './common/filters/global-exception.filter.js
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  // allow all origine (work well with development phase)
+  app.enableCors();
+
   // Enable ValidationPips - without this DTO decorator do nothing!
   app.useGlobalPipes(
     new ValidationPipe({
