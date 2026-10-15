@@ -10,9 +10,8 @@ import { Server, Socket } from 'socket.io';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GeminiCallService } from '../gemini/geminiCall.service.js';
-import { GeminiTranscribeService } from '../gemini/gemini-transcript.service.js';
+import { GeminiTranscribeService } from '../gemini/gemini-transcribe-live.service.js';
 import Cartesia from '@cartesia/cartesia-js';
-import { WriteStream,createWriteStream } from 'node:fs';
 
 @Injectable()
 @WebSocketGateway({
@@ -23,7 +22,9 @@ export class TtsGateway {
   server!: Server;
 
   private cartesia: Cartesia;
-  private activeStreams = new Map<string, WriteStream>();
+
+  private runs = new Map<string, { runId: number; abort: AbortController }>();
+  private runCounter = 0;
 
   constructor(
     private readonly config: ConfigService,
@@ -36,73 +37,116 @@ export class TtsGateway {
 
   @SubscribeMessage('start-conversation')
   async handleConversation(
-    @MessageBody() data: { message: string; runId: number },
+    @MessageBody() data: { message: string},
     @ConnectedSocket() client: Socket,
   ) {
+    console.log(data.message)
+    return this.startRun(client,data.message);
+  }
 
-    const voiceId = 'a33f7a4c-100f-41cf-a1fd-5822e8fc253f'; 
-    const modelId = 'sonic-3.6'; // or 'sonic-latest'
+  // Automatically call by NestJS when connection acomplished 
+  handleConnection(client: Socket) {
+    console.log(`Client connected: ${client.id}`);
+  }
 
-    try {
-      const llmStream = await this.LLMCall.streamAi(data.message);
+  // Automatically call by NestJs when connection close
+  handleDisconnect(client: Socket) {
+    console.log(`Client disconnected: ${client.id}`);
+    this.cancelRun(client.id);
+    this.geminiTranscript.close();
+  }
 
-      let sentenceBuffer = '';
-      let sentenceIndex = 0;
+  @SubscribeMessage('start-recording')
+  async handleStartRecording(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: any,
+  ) {
 
-      // Keep TTS jobs sequential so audio order is preserved
-      let ttsChain: Promise<void> = Promise.resolve();
-      let ttsError: unknown = null;
+    // 1 Initialize the upstream connection to google when start recording 
+    // Pass the call back function that handle return transcript
+    try{
+      await this.geminiTranscript.connectToGemini(client.id,async (e)=>{
+        switch(e.type){
+          case 'interim':
+            // barge-in - during start run if receive interim cancel run
+            if (this.runs.has(client.id)) this.cancelRun(client.id);  
 
-      const enqueue = (sentence: string) => {
-        const idx = sentenceIndex++;
+            client.emit('transcript-interim', { text: e.text });
+            break;
 
-        ttsChain = ttsChain
-          .then(() => {
-            if (ttsError) return;
-            return this.streamTTS(client, voiceId, modelId, sentence, idx, data.runId);
-          })
-          .catch((e) => {
-            ttsError = e;
-          });
-      };
+          case 'final':
+          client.emit('transcript-final', { text: e.text });
 
-      for await (const token of llmStream) {
-        sentenceBuffer += token;
+          // cancels any leftover run itself - got a sencetence and go to the next pipline - can be interrupt
+          this.startRun(client, e.text);  
 
-        if (/[.!?]\s*$/.test(sentenceBuffer) || sentenceBuffer.length > 120) {
-          enqueue(sentenceBuffer.trim());
-          sentenceBuffer = '';
-        }
-      }
+          console.log(e.text);
+          break;
 
-      if (sentenceBuffer.trim()) {
-        enqueue(sentenceBuffer.trim());
-      }
+          case 'speech-start':
+          case 'speech-end':
+            client.emit(e.type, {});
+            break;
+          }
+      })
 
-      await ttsChain;
-      if (ttsError) throw ttsError;
-
-      client.emit('done', { runId: data.runId });
-    } catch (err) {
-      console.error(err);
-      client.emit('error', {
-        message: err instanceof Error ? err.message : 'Unknown error',
-        runId: data.runId,
-      });
+      // tell the client that gemini is ready
+      client.emit('recording-ready');
     }
+    catch(error){
+      client.emit('error', { message: 'Failed to connect to Gemini' });
+    }
+
+  }
+
+  @SubscribeMessage('audio-chunk')
+  handleAudioChunk(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() chunk: Buffer, // Socket.IO automatically converts ArrayBuffer → Buffer
+  ) {
+    // 1 wrap and send chunk to Gemini Transcript websocket service
+    this.geminiTranscript.sendAudioChunk(chunk);
+  }
+
+  @SubscribeMessage('stop-recording')
+  handleStopRecording(@ConnectedSocket() client: Socket) {
+    client.emit('recording-stopped');
+
+    console.log(`Stopped recording for ${client.id}`);
+
+    // disconnect to gemini ws when stop recording
+    this.geminiTranscript.close();
+  }
+
+  @SubscribeMessage('interrupt')
+  handleInterrupt(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { runId: number },
+  ) {
+    const run = this.runs.get(client.id);
+    if (!run || run.runId !== data.runId) return; // ignore stale interrupt
+
+    this.cancelRun(client.id);
   }
 
   private async streamTTS(
     client: Socket,
     voiceId: string,
     modelId: string,
-    text: string,
+    sentence: string,
     sentenceIndex: number,
     runId: number,
+    signal:AbortSignal,
     ) {
+    if(signal.aborted) return;
+
     const ws = await this.cartesia.tts.websocket();
+    const onAbort = () => ws.close();
+    signal.addEventListener('abort',onAbort,{once:true})
 
     try {
+        if(signal.aborted) return ;
+
         const ctx = ws.context({
         model_id: modelId,
         voice: voiceId,
@@ -115,21 +159,23 @@ export class TtsGateway {
         add_timestamps: true, // important
         });
 
-        await ctx.push({ transcript: text });
+        await ctx.push({ transcript: sentence });
         await ctx.no_more_inputs();
 
         for await (const event of ctx.receive()) {
-        if (event.type === 'chunk' && event.audio) {
-            // event.audio is already a Buffer
-            const base64Audio = Buffer.from(event.audio).toString('base64');
+          if(signal.aborted) return;
 
-            client.emit('tts-chunk-catesia', {
-            audio: base64Audio,
-            alignment: null,          // timestamps come in a different event
-            sentenceIndex,
-            runId,
-            });
-        }
+          if (event.type === 'chunk' && event.audio) {
+              // event.audio is already a Buffer
+              const base64Audio = Buffer.from(event.audio).toString('base64');
+
+              client.emit('tts-chunk-catesia', {
+              audio: base64Audio,
+              alignment: null,          // timestamps come in a different event
+              sentenceIndex,
+              runId,
+              });
+          }
 
         // Timestamps come as a separate event
         if (event.type === 'timestamps' && (event as any).word_timestamps) {
@@ -146,84 +192,99 @@ export class TtsGateway {
             );
         }
         }
-    } finally {
+    } 
+    catch(e){
+      if(!signal.aborted) throw e;
+    }
+    finally {
+        signal.removeEventListener('abort',onAbort);
         ws.close();
     }
+  } 
+
+  private cancelRun(clientId: string) {
+    const run = this.runs.get(clientId);
+    if (!run) return;
+
+    run.abort.abort();
+    this.runs.delete(clientId);
+
+    this.server.to(clientId).emit('interrupted', { runId: run.runId });
   }
 
-  // Automatically call by NestJS when connection acomplished 
-  handleConnection(client: Socket) {
-    console.log(`Client connected: ${client.id}`);
+  private async startRun(client: Socket, message: string) {
+    this.cancelRun(client.id);                 // always kill the old run first
+    const runId = ++this.runCounter;
+    const abort = new AbortController();
+    this.runs.set(client.id, { runId, abort });
+
+    client.emit('run-started', { runId });
+
+    return this.runConversation(client, message, runId, abort.signal).finally(() => {
+      if (this.runs.get(client.id)?.abort === abort) this.runs.delete(client.id);
+    });
   }
 
-  // Automatically call by NestJs when connection close
-  handleDisconnect(client: Socket) {
-    console.log(`Client disconnected: ${client.id}`);
-    this.geminiTranscript.close();
-    this.cleanup(client.id);
-  }
+  async runConversation(client:Socket,message:string,runId:number,signal:AbortSignal) {
 
-  private cleanup(clientId: string) {
-    const stream = this.activeStreams.get(clientId);
-    if (stream) {
-      stream.end();
-      this.activeStreams.delete(clientId);
+    let voiceId = 'a33f7a4c-100f-41cf-a1fd-5822e8fc253f'; 
+    voiceId = 'a4c91117-8781-4766-8284-b5ebeb569d36';
+    const modelId = 'sonic-3.6'; // or 'sonic-latest'
+
+    try {
+      const llmStream = this.LLMCall.streamAi(message,signal);
+      console.log(llmStream);
+
+      let sentenceBuffer = '';
+      let sentenceIndex = 0;
+
+      // Keep TTS jobs sequential so audio order is preserved
+      let ttsChain: Promise<void> = Promise.resolve();
+      let ttsError: unknown = null;
+
+      const enqueue = (sentence: string) => {
+        const idx = sentenceIndex++;
+
+        ttsChain = ttsChain
+          .then(() => {
+            if (ttsError || signal.aborted) return; // skip queue sentence
+            console.log(sentence);
+            return this.streamTTS(client, voiceId, modelId, sentence, idx, runId,signal);
+          })
+          .catch((e) => {
+            ttsError = e;
+          });
+      };
+
+      for await (const token of llmStream) {
+        if(signal.aborted) break;
+
+        sentenceBuffer += token;
+
+        if (/[.!?]\s*$/.test(sentenceBuffer) || sentenceBuffer.length > 120) {
+          enqueue(sentenceBuffer.trim());
+          sentenceBuffer = '';
+        }
+      }
+
+      if (sentenceBuffer.trim()) {
+        enqueue(sentenceBuffer.trim());
+      }
+
+      await ttsChain;
+      if(signal.aborted) return client.emit('interrupted',{runId:runId});
+
+      if (ttsError) throw ttsError;
+
+      client.emit('done', { runId: runId });
+    } catch (err) {
+      if(signal.aborted) return;
+      
+      console.error(err);
+      client.emit('error', {
+        message: err instanceof Error ? err.message : 'Unknown error',
+        runId:runId,
+      });
     }
   }
-
-  @SubscribeMessage('start-recording')
-  handleStartRecording(
-    @ConnectedSocket() client: Socket,
-    @MessageBody() data: any,
-  ) {
-
-    // 1 Initialize the upstream connection to google when start recording 
-    // Pass the call back function that handle return text
-    //------------------------
-    try{
-      this.geminiTranscript.connectToGemini(client.id,async (e)=>{
-        switch(e.type){
-          case 'interim':
-            client.emit('transcript-interim', { text: e.text });
-            break;
-
-          case 'final':
-          client.emit('transcript-final', { text: e.text });
-          console.log(e.text);
-          // this is the right place to feed your LLM -> TTS pipeline:
-          // await this.handleConversation({ message: e.text, runId }, client);
-          break;
-
-          case 'speech-start':
-          case 'speech-end':
-            client.emit(e.type, {});
-            break;
-          }
-      })
-    }
-    catch(error){
-      client.emit('error', { message: 'Failed to connect to Gemini' });
-    }
-
-  }
-
-  @SubscribeMessage('audio-chunk')
-  handleAudioChunk(
-    @ConnectedSocket() client: Socket,
-    @MessageBody() chunk: Buffer, // Socket.IO automatically converts ArrayBuffer → Buffer
-  ) {
-
-    // 1 wrap and send chunk to Gemini Transcript websocket service
-    this.geminiTranscript.sendAudioChunk(chunk);
-
-    // 2 write voice chunk to disk 
-  }
-
-  @SubscribeMessage('stop-recording')
-  handleStopRecording(@ConnectedSocket() client: Socket) {
-    this.cleanup(client.id);
-    client.emit('recording-stopped');
-    console.log(`Stopped recording for ${client.id}`);
-  }
-
 }

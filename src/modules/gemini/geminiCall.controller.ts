@@ -11,6 +11,9 @@ export class GeminiCallController {
 
   constructor(private readonly ai: GeminiCallService) {}
 
+
+  
+
   @Post('stream')
   async streamAI(@Body() dto: PromptDTO, @Res() res: Response) {
     res.status(200);

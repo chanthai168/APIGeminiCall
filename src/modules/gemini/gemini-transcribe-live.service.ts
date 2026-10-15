@@ -13,10 +13,12 @@ export class GeminiTranscribeService {
   private logger = new Logger(GeminiTranscribeService.name);
   private geminiWs: WebSocket | null = null;
   private apiKey: string;
+  private model:string;
 
   constructor(private configService: ConfigService) {
     // Retrieve your secret API key safely from environment variables
     this.apiKey = this.configService.get<string>('GEMINI_API_KEY') || '';
+    this.model = this.configService.get<string>('GEMINI_3_5_TRANSCRIBE_LIVE') || 'gemini-3.5-transcribe-live';
   }
 
   /**
@@ -24,7 +26,6 @@ export class GeminiTranscribeService {
    */
   public connectToGemini(clientId:string,onEvent:(e:TranscriptEvent)=>void): Promise<void> {
     return new Promise((resolve, reject) => {
-      const model = 'gemini-3.5-transcribe-live';
       const host = 'generativelanguage.googleapis.com';
       const url = `wss://${host}/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${this.apiKey}`;
 
@@ -34,11 +35,11 @@ export class GeminiTranscribeService {
       this.geminiWs.on('open', () => {
         this.logger.log('Connected to Gemini Live API upstream.');
         this.sendSetupPayload();
-        resolve();
       });
 
       this.geminiWs.on('message', (data: WebSocket.Data) => {
         const msg = JSON.parse(data.toString());
+        this.logger.log(msg);
         if (msg.setupComplete) {
             return resolve();
         } 
@@ -71,16 +72,19 @@ export class GeminiTranscribeService {
   }
 
   /**
-   * Step 1: Send configuration payload telling Gemini we expect text response/transcriptions
+   * Step 1: Send configurat tion payload telling Gemini we expect text response/transcriptions
    */
   private sendSetupPayload() {
     if (!this.geminiWs || this.geminiWs.readyState !== WebSocket.OPEN) return;
 
     const setupMessage = {
       setup: {
-        model: `models/gemini-3.5-transcribe-live`,
+        model: `models/${this.model}`,
         generationConfig: {
           responseModalities: ['TEXT'], // Requesting text back only
+        },
+        inputAudioTranscription: {
+            languageCodes: ['km', 'en'], // Empty means automatic language detection
         },
       },
     };
@@ -93,40 +97,20 @@ export class GeminiTranscribeService {
    * Step 2: Forward client's raw audio chunks upstream to Google
    */
     public sendAudioChunk(pcmBuffer: Buffer) {
-    if (!this.geminiWs || this.geminiWs.readyState !== WebSocket.OPEN) return;
+        this.logger.log('Audio chunk is received.');
+        if (!this.geminiWs || this.geminiWs.readyState !== WebSocket.OPEN) return;
 
-    const audioMessage = {
-        realtimeInput: {
-        audio: {
-            mimeType: 'audio/pcm;rate=16000',
-            data: pcmBuffer.toString('base64'),
-        },
-        }
-    };
+        const audioMessage = {
+            realtimeInput: {
+            audio: {
+                mimeType: 'audio/pcm;rate=16000',
+                data: pcmBuffer.toString('base64'),
+            },
+            }
+        };
 
-    this.geminiWs.send(JSON.stringify(audioMessage));
+        this.geminiWs.send(JSON.stringify(audioMessage));
     }
-
-  /**
-   * Step 3: Parse response JSON from Google and extract the resulting text
-   */
-  private handleGeminiMessage(data: WebSocket.Data, onTextExtracted: (text: string) => void) {
-    try {
-      const response = JSON.parse(data.toString());
-
-      // Look inside serverContent -> modelTurn -> parts for text segments
-      const parts = response?.serverContent?.modelTurn?.parts;
-      if (parts && Array.isArray(parts)) {
-        for (const part of parts) {
-          if (part.text) {
-            onTextExtracted(part.text);
-          }
-        }
-      }
-    } catch (err) {
-      this.logger.error('Failed to parse message from Gemini:', err);
-    }
-  }
 
   /**
    * Clean up connection when client drops
