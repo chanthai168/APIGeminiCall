@@ -1,6 +1,6 @@
 generator client {
-  provider = "prisma-client"
-  output   = "../src/generated/prisma"
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
   moduleFormat = "cjs"
 }
 
@@ -22,4 +22,14 @@ model User {
   password  String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model Transcribe {
+  id                 String   @id @default(uuid())
+  audio_name         String
+  transcription      String
+  url                String
+  transcription_json Json
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 }

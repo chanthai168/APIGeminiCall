@@ -9,8 +9,8 @@ export type TranscriptEvent =
   | { type: 'speech-end' };
 
 @Injectable()
-export class GeminiTranscribeService {
-  private logger = new Logger(GeminiTranscribeService.name);
+export class GeminiTranscribeServiceLive {
+  private logger = new Logger(GeminiTranscribeServiceLive.name);
   private geminiWs: WebSocket | null = null;
   private apiKey: string;
   private model:string;

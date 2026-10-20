@@ -10,7 +10,7 @@ import { Server, Socket } from 'socket.io';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GeminiCallService } from '../gemini/geminiCall.service.js';
-import { GeminiTranscribeService } from '../gemini/gemini-transcribe-live.service.js';
+import { GeminiTranscribeServiceLive } from '../gemini/gemini-transcribe-live.service.js';
 import Cartesia from '@cartesia/cartesia-js';
 
 @Injectable()
@@ -29,7 +29,7 @@ export class TtsGateway {
   constructor(
     private readonly config: ConfigService,
     private readonly LLMCall: GeminiCallService,
-    private readonly geminiTranscript:GeminiTranscribeService,
+    private readonly geminiTranscript:GeminiTranscribeServiceLive,
   ) {
     const apiKey = this.config.get<string>('CARTESIA_API_KEY');
     this.cartesia = new Cartesia({ apiKey });
