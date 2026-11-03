@@ -96,21 +96,21 @@ export class GeminiTranscribeServiceLive {
   /**
    * Step 2: Forward client's raw audio chunks upstream to Google
    */
-    public sendAudioChunk(pcmBuffer: Buffer) {
-        this.logger.log('Audio chunk is received.');
-        if (!this.geminiWs || this.geminiWs.readyState !== WebSocket.OPEN) return;
+  public sendAudioChunk(pcmBuffer: Buffer) {
+      this.logger.log('Audio chunk is received.');
+      if (!this.geminiWs || this.geminiWs.readyState !== WebSocket.OPEN) return;
 
-        const audioMessage = {
-            realtimeInput: {
-            audio: {
-                mimeType: 'audio/pcm;rate=16000',
-                data: pcmBuffer.toString('base64'),
-            },
-            }
-        };
+      const audioMessage = {
+          realtimeInput: {
+          audio: {
+              mimeType: 'audio/pcm;rate=16000',
+              data: pcmBuffer.toString('base64'),
+          },
+          }
+      };
 
-        this.geminiWs.send(JSON.stringify(audioMessage));
-    }
+      this.geminiWs.send(JSON.stringify(audioMessage));
+  }
 
   /**
    * Clean up connection when client drops

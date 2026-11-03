@@ -2,11 +2,13 @@ import { Global, Module } from '@nestjs/common';
 import { GeminiCallService } from './geminiCall.service.js';
 import { GeminiCallController } from './geminiCall.controller.js';
 import { GeminiTranscribeServiceLive } from './gemini-transcribe-live.service.js';
-import { GeminiTranscribeService } from './gemini-transcribe.service.js';
+import { MessageService } from './message.service.js';
+import { CharacterModule } from '../character/character.module.js';
 
 @Global()
 @Module({
-  providers: [GeminiCallService,GeminiTranscribeServiceLive,GeminiTranscribeService],
+  imports: [CharacterModule],
+  providers: [GeminiCallService,GeminiTranscribeServiceLive,MessageService],
   exports: [GeminiCallService,GeminiTranscribeServiceLive],
   controllers: [GeminiCallController],
 })

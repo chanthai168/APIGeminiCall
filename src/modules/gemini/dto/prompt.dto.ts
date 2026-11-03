@@ -6,6 +6,5 @@ export class PromptDTO {
     example: 'Explain what is javascript in one line.',
   })
   @IsString()
-  @MaxLength(255)
   prompt!: string;
 }

@@ -16,6 +16,7 @@ export interface TranscriptionConfigOptions {
 export interface TranscribeOptions {
   filePath: string;
   mimeType: string;
+  fileName:string;
   originalPath:string;
   transcriptionConfig?: TranscriptionConfigOptions;
 }

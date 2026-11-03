@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
-import { TtsGateway } from './tts.gateway.js';
-import { TtsGateway as TtsCateciaGateway } from './tts-catecia.gateway.js';
+import { TtsGateway as TtsCateciaGateway } from './sts-gateway.js';
 
 @Module({
   providers: [TtsCateciaGateway],

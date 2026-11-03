@@ -13,7 +13,11 @@ import { TtsModule } from './modules/tts/tts.module.js';
       isGlobal: true,         
       envFilePath: '.env',     
     })
-    ,PrismaModule, UsersModule,geminiCallModule,TtsModule],
+      ,PrismaModule
+      ,UsersModule
+      ,geminiCallModule
+      ,TtsModule
+    ],
   controllers: [AppController],
   providers: [AppService],
 })

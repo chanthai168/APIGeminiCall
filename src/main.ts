@@ -1,12 +1,15 @@
 import { NestFactory } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module.js';
 import { BadRequestException, ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder,SwaggerModule } from '@nestjs/swagger';
 import { ValidationError } from 'class-validator';
 import { AllExceptionsFilter } from './common/filters/global-exception.filter.js';
+import { resolve } from 'node:path';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  app.useStaticAssets(resolve(process.cwd(), 'uploads'), { prefix: '/uploads/' });
 
   // allow all origine (work well with development phase)
   app.enableCors();

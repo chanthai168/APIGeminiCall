@@ -3,102 +3,16 @@ import type { Response } from 'express';
 import { PromptDTO } from './dto/prompt.dto.js';
 import { GeminiCallService } from './geminiCall.service.js';
 import { LoggingInterceptor } from '../../common/interceptors/Logging.interceptor.js';
-import { GeminiTranscribeService } from './gemini-transcribe.service.js';
-import { FileInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
-import { extname, resolve, dirname } from 'path';
-import { fileURLToPath } from 'url';
-import { UploadedFile } from '@nestjs/common';
-import { BadRequestException } from '@nestjs/common';
-import { TranscriptionConfigOptionsDto } from './dto/transcription-option-config.dto.js';
-import { plainToInstance } from 'class-transformer';
-import { validate } from 'class-validator';
+import { resolve } from 'node:path';
 
-const uploadDirectory = resolve(
-  dirname(fileURLToPath(import.meta.url)),
-  '../../../../uploads',
-);
+const uploadDirectory = resolve(process.cwd(), 'uploads');
 
 @UseInterceptors(LoggingInterceptor)
 @Controller('gemini')
 export class GeminiCallController {
   private readonly logger = new Logger(GeminiCallController.name);
 
-  constructor(private readonly ai: GeminiCallService,private readonly transcribeService:GeminiTranscribeService ) {}
-
-  @Post('audio')
-  @UseInterceptors(
-    FileInterceptor('file', {
-      storage: diskStorage({
-        destination: uploadDirectory,
-        filename: (req, file, callback) => {
-          const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-          callback(null, `${uniqueSuffix}${extname(file.originalname)}`);
-        },
-      }),
-    }),
-  )
-  async uploadAndTranscribe(
-    @UploadedFile() file: Express.Multer.File,
-    @Body('config') config: unknown,
-  ) {
-    if (!file) {
-      throw new BadRequestException('Audio file is required');
-    }
-
-    const transcriptionConfig = await this.parseTranscriptionConfig(config);
-
-    // 2. Clean up: Delete the local file after processing to save disk space
-    // await fs.unlink(file.path).catch(() => {});
-    return this.transcribeService.transcribe({
-      filePath: file.path,
-      originalPath: file.originalname,
-      mimeType: file.mimetype,
-      transcriptionConfig,
-    });
-  }
-
-  private async parseTranscriptionConfig(
-    config: unknown,
-  ): Promise<TranscriptionConfigOptionsDto | undefined> {
-    if (config === undefined || config === '') {
-      return undefined;
-    }
-
-    let parsedConfig: unknown = config;
-    if (typeof config === 'string') {
-      try {
-        parsedConfig = JSON.parse(config);
-      } catch {
-        throw new BadRequestException('"config" must contain valid JSON');
-      }
-    }
-
-    if (
-      parsedConfig === null ||
-      typeof parsedConfig !== 'object' ||
-      Array.isArray(parsedConfig)
-    ) {
-      throw new BadRequestException('"config" must be a JSON object');
-    }
-
-    const transcriptionConfig = plainToInstance(
-      TranscriptionConfigOptionsDto,
-      parsedConfig,
-    );
-    const errors = await validate(transcriptionConfig, {
-      whitelist: true,
-      forbidNonWhitelisted: true,
-    });
-    if (errors.length > 0) {
-      throw new BadRequestException({
-        message: 'Invalid transcription config',
-        errors,
-      });
-    }
-
-    return transcriptionConfig;
-  }
+  constructor(private readonly ai: GeminiCallService) {}
 
   @Post('stream')
   async streamAI(@Body() dto: PromptDTO, @Res() res: Response) {

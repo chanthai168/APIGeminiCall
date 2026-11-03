@@ -10,6 +10,7 @@ import { Server, Socket } from 'socket.io';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GeminiCallService } from '../gemini/geminiCall.service.js';
+import { CharacterService } from '../character/character.service.js';
 import { GeminiTranscribeServiceLive } from '../gemini/gemini-transcribe-live.service.js';
 import Cartesia from '@cartesia/cartesia-js';
 
@@ -26,10 +27,13 @@ export class TtsGateway {
   private runs = new Map<string, { runId: number; abort: AbortController }>();
   private runCounter = 0;
 
+  private cartesiaWsByClient = new Map<string, Awaited<ReturnType<Cartesia['tts']['websocket']>>>();
+
   constructor(
     private readonly config: ConfigService,
     private readonly LLMCall: GeminiCallService,
     private readonly geminiTranscript:GeminiTranscribeServiceLive,
+    private readonly characterService:CharacterService,
   ) {
     const apiKey = this.config.get<string>('CARTESIA_API_KEY');
     this.cartesia = new Cartesia({ apiKey });
@@ -44,18 +48,6 @@ export class TtsGateway {
     return this.startRun(client,data.message);
   }
 
-  // Automatically call by NestJS when connection acomplished 
-  handleConnection(client: Socket) {
-    console.log(`Client connected: ${client.id}`);
-  }
-
-  // Automatically call by NestJs when connection close
-  handleDisconnect(client: Socket) {
-    console.log(`Client disconnected: ${client.id}`);
-    this.cancelRun(client.id);
-    this.geminiTranscript.close();
-  }
-
   @SubscribeMessage('start-recording')
   async handleStartRecording(
     @ConnectedSocket() client: Socket,
@@ -66,8 +58,10 @@ export class TtsGateway {
     // Pass the call back function that handle return transcript
     try{
       await this.geminiTranscript.connectToGemini(client.id,async (e)=>{
+        
         switch(e.type){
           case 'interim':
+
             // barge-in - during start run if receive interim cancel run
             if (this.runs.has(client.id)) this.cancelRun(client.id);  
 
@@ -77,7 +71,7 @@ export class TtsGateway {
           case 'final':
           client.emit('transcript-final', { text: e.text });
 
-          // cancels any leftover run itself - got a sencetence and go to the next pipline - can be interrupt
+          // cancels any leftover, run itself - got a sencetence and go to the next pipline - can be interrupt
           this.startRun(client, e.text);  
 
           console.log(e.text);
@@ -129,6 +123,31 @@ export class TtsGateway {
     this.cancelRun(client.id);
   }
 
+  // get or create a shared WS for this client
+  private async getCartesiaWs(clientId: string) {
+    let ws = this.cartesiaWsByClient.get(clientId);
+    if (ws) return ws;
+
+    ws = await this.cartesia.tts.websocket();
+    ws.on('error', (err) => {
+      console.error(`[Cartesia WS] ${clientId}`, err);
+      this.cartesiaWsByClient.delete(clientId);
+    });
+    // Optional: clean up on unexpected close
+    // (depends on the exact event the SDK emits)
+    this.cartesiaWsByClient.set(clientId, ws);
+    return ws;
+  }
+
+  // close catesia connection
+  private async closeCartesiaWs(clientId: string) {
+    const ws = this.cartesiaWsByClient.get(clientId);
+    if (ws) {
+      try { ws.close(); } catch {}
+      this.cartesiaWsByClient.delete(clientId);
+    }
+  }
+
   private async streamTTS(
     client: Socket,
     voiceId: string,
@@ -140,7 +159,7 @@ export class TtsGateway {
     ) {
     if(signal.aborted) return;
 
-    const ws = await this.cartesia.tts.websocket();
+    const ws = await this.getCartesiaWs(client.id);
     const onAbort = () => ws.close();
     signal.addEventListener('abort',onAbort,{once:true})
 
@@ -156,7 +175,7 @@ export class TtsGateway {
             encoding: 'pcm_s16le',
             sample_rate: 24000,
         },
-        add_timestamps: true, // important
+        add_timestamps: true, 
         });
 
         await ctx.push({ transcript: sentence });
@@ -171,7 +190,7 @@ export class TtsGateway {
 
               client.emit('tts-chunk-catesia', {
               audio: base64Audio,
-              alignment: null,          // timestamps come in a different event
+              alignment: null,          
               sentenceIndex,
               runId,
               });
@@ -198,7 +217,6 @@ export class TtsGateway {
     }
     finally {
         signal.removeEventListener('abort',onAbort);
-        ws.close();
     }
   } 
 
@@ -210,6 +228,25 @@ export class TtsGateway {
     this.runs.delete(clientId);
 
     this.server.to(clientId).emit('interrupted', { runId: run.runId });
+  }
+
+  @SubscribeMessage('select-character')
+  async selectCharacter(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { characterId: string },
+  ) {
+    const character = await this.characterService.getAvailableCharacter(
+      'userId',
+      data.characterId,
+    );
+
+    if(!character) {
+      client.emit('failed-character-select', { characterId: data.characterId });
+      return;
+    }
+
+    client.data.character = character;
+    client.emit('character-selected', { characterId: character.id });
   }
 
   private async startRun(client: Socket, message: string) {
@@ -227,12 +264,14 @@ export class TtsGateway {
 
   async runConversation(client:Socket,message:string,runId:number,signal:AbortSignal) {
 
-    let voiceId = 'a33f7a4c-100f-41cf-a1fd-5822e8fc253f'; 
-    voiceId = 'a4c91117-8781-4766-8284-b5ebeb569d36';
+    // defualt
+    let voiceId = client.data.character.voiceId;
+    if(!voiceId) voiceId = '5f2517fc-ea7a-484f-84c4-3a1e361adecb';
+    
     const modelId = 'sonic-3.6'; // or 'sonic-latest'
 
     try {
-      const llmStream = this.LLMCall.streamAi(message,signal);
+      const llmStream = this.LLMCall.streamAi(message,client.data.character.systemPrompt,signal);
       console.log(llmStream);
 
       let sentenceBuffer = '';
@@ -287,4 +326,20 @@ export class TtsGateway {
       });
     }
   }
+
+  // Automatically call by NestJS when connection acomplished 
+  handleConnection(client: Socket) {
+    console.log(`Client connected: ${client.id}`);
+  }
+
+  // Automatically call by NestJs when connection close
+  handleDisconnect(client: Socket) {
+    console.log(`Client disconnected: ${client.id}`);
+    this.cancelRun(client.id);
+    this.geminiTranscript.close();
+
+    // close cartesia connection
+    this.closeCartesiaWs(client.id);
+  }
+
 }
